@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Moriremo Ma Non Di Sete — Store</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#c8c4be; font-family:'Helvetica Neue',sans-serif; overflow:hidden; width:100vw; height:100vh; }
+#canvas { width:100%; height:100%; display:block; cursor:default; }
+#ui { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+#logo { position:absolute; top:24px; left:50%; transform:translateX(-50%); color:#111; font-size:10px; letter-spacing:.28em; text-transform:uppercase; opacity:0; transition:opacity 1s; text-align:center; line-height:1.9; }
+#logo span { display:block; font-size:7px; letter-spacing:.4em; color:#666; }
+#hint { position:absolute; bottom:24px; left:50%; transform:translateX(-50%); color:#555; font-size:9px; letter-spacing:.2em; text-transform:uppercase; text-align:center; line-height:2.2; opacity:0; transition:opacity 1s; }
+#entry { position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:all; transition:opacity 1.5s; }
+#brand { color:#111; font-size:clamp(13px,2vw,24px); letter-spacing:.15em; text-transform:uppercase; font-weight:300; text-align:center; line-height:1.5; }
+#brand em { display:block; font-size:.38em; letter-spacing:.5em; color:#666; font-style:normal; margin-top:10px; }
+#enterbtn { margin-top:44px; background:transparent; border:1px solid rgba(0,0,0,.3); color:#111; padding:12px 40px; font-size:10px; letter-spacing:.3em; text-transform:uppercase; cursor:pointer; transition:all .3s; pointer-events:all; }
+#enterbtn:hover { background:rgba(0,0,0,.06); border-color:#111; }
+#lb { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.86); display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transition:opacity .35s; }
+#lb.open { opacity:1; pointer-events:all; }
+#lbin { background:#0f0f0f; border:1px solid #222; padding:36px 32px; max-width:380px; width:90%; text-align:center; transform:translateY(12px); transition:transform .35s; }
+#lb.open #lbin { transform:translateY(0); }
+#lbicon { font-size:56px; margin-bottom:10px; display:block; animation:fl 3s ease-in-out infinite; }
+@keyframes fl { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+#lbtitle { color:#fff; font-size:12px; letter-spacing:.3em; text-transform:uppercase; margin-bottom:6px; }
+#lbsub { color:#444; font-size:9px; letter-spacing:.3em; text-transform:uppercase; margin-bottom:18px; }
+#lbdesc { color:#999; font-size:13px; line-height:1.75; margin-bottom:20px; }
+#lbprice { color:#fff; font-size:19px; font-weight:300; margin-bottom:20px; }
+#lbcta { background:#fff; color:#000; border:none; padding:12px 0; font-size:10px; letter-spacing:.3em; text-transform:uppercase; cursor:pointer; width:100%; transition:background .2s; }
+#lbcta:hover { background:#ddd; }
+#lbclose { position:absolute; top:16px; right:24px; color:#555; font-size:20px; cursor:pointer; background:none; border:none; transition:color .2s; pointer-events:all; }
+#lbclose:hover { color:#fff; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="ui">
+  <div id="logo">Moriremo Ma Non Di Sete<span>Sport &amp; Lifestyle</span></div>
+  <div id="entry">
+    <div id="brand">Moriremo Ma Non Di Sete<em>Benvenuto nel negozio</em></div>
+    <button id="enterbtn">Entra →</button>
+  </div>
+  <div id="hint">Click sullo scaffale per avvicinarti · Click sul prodotto appeso per scoprirlo<br>WASD / frecce per muoverti · Scroll per zoom</div>
+  <div id="lb">
+    <button id="lbclose">✕</button>
+    <div id="lbin">
+      <span id="lbicon">👕</span>
+      <div id="lbtitle">Prodotto</div>
+      <div id="lbsub">Moriremo Ma Non Di Sete — 2026</div>
+      <div id="lbdesc">Descrizione</div>
+      <div id="lbprice">€ 00,00</div>
+      <button id="lbcta">Aggiungi al carrello</button>
+    </div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const renderer = new THREE.WebGLRenderer({canvas:document.getElementById('canvas'),antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.25;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0xc8c4be);
+scene.fog=new THREE.Fog(0xc8c4be,14,28);
+
+const camera=new THREE.PerspectiveCamera(58,innerWidth/innerHeight,0.1,100);
+let camX=0,camZ=14,camTargetX=0,camTargetZ=14;
+let lookAtX=0,lookAtY=1.5,lookAtZ=-7;
+let lookTargX=0,lookTargY=1.5,lookTargZ=-7;
+let appState='entry',navigating=false,navTX=0,navTZ=0,navLX=0,navLZ=0;
+camera.position.set(0,1.8,14);
+
+// LIGHTS
+scene.add(new THREE.AmbientLight(0xffffff,0.75));
+const sun=new THREE.DirectionalLight(0xfff8f0,0.7);
+sun.position.set(4,10,8); sun.castShadow=true; sun.shadow.mapSize.set(2048,2048); scene.add(sun);
+const wl=new THREE.RectAreaLight(0xd0e0ff,2.8,14,7);
+wl.position.set(0,3,10); wl.lookAt(0,2,0); scene.add(wl);
+function makeSpot(x,y,z,tx,ty,tz,i=2.2,a=Math.PI/9){
+  const s=new THREE.SpotLight(0xfffaf0,i,11,a,0.5);
+  s.position.set(x,y,z); s.target.position.set(tx,ty,tz);
+  scene.add(s); scene.add(s.target);
+}
+
+// MATERIALS
+const M=(c,r=0.85,m=0)=>new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:m});
+const wallM  =M(0xd6d2cc,0.92);
+const floorM =M(0x7a7268,0.90);
+const ceilM  =M(0xe8e5e0,0.95);
+const frameM =M(0x0d0d0d,0.3,0.7);
+const glassM =new THREE.MeshStandardMaterial({color:0x88aacc,transparent:true,opacity:.10,roughness:0,metalness:.1});
+const shelfM =M(0xf5f3f0,0.65);
+const railM  =M(0x1a1a1a,0.2,0.92);
+const counterM=M(0x1e1e1e,0.4,0.3);
+const marbleM =M(0xeeeae0,0.18,0.05);
+// LIGHT counter (product display bench)
+const benchM =M(0xf0ece4,0.6,0.05);
+const benchTopM=M(0xfaf8f4,0.25,0.08);
+const screenM=new THREE.MeshStandardMaterial({color:0x0a1a2e,emissive:new THREE.Color(0x0a2244),emissiveIntensity:1.5,roughness:0});
+const signBackM=M(0x111111,0.5);
+const ledM=new THREE.MeshStandardMaterial({color:0xffffee,emissive:new THREE.Color(0xffffcc),emissiveIntensity:2.8,roughness:0});
+// Hanger rod material
+const hangerM=M(0xd4d0c8,0.3,0.8);
+// Product colors — dark for contrast
+const PC=[0x1a1a2e,0x16213e,0x0f3460,0x1b1b2f,0x2c2c54,0x241734,0x111111,0x0d0d0d];
+const PM=PC.map(c=>M(c,0.9));
+// Accent (for variety)
+const AC=[0xcc2222,0x2255aa,0x226633,0x885522];
+const AM=AC.map(c=>M(c,0.85));
+
+// HELPERS
+const Box=(w,h,d,mat,x,y,z,ry=0)=>{
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
+  m.position.set(x,y,z); m.rotation.y=ry;
+  m.castShadow=true; m.receiveShadow=true; scene.add(m); return m;
+};
+const Cyl=(r1,r2,h,seg,mat,x,y,z,rx=0)=>{
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,h,seg),mat);
+  m.position.set(x,y,z); m.rotation.x=rx; m.castShadow=true; scene.add(m); return m;
+};
+
+function makeLabel(text,w=2.2,h=0.26){
+  const cw=512,ch=Math.round(512*(h/w));
+  const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+  const ctx=cv.getContext('2d');
+  ctx.fillStyle='#111'; ctx.fillRect(0,0,cw,ch);
+  ctx.fillStyle='#fff'; ctx.font=`300 ${Math.round(ch*0.5)}px Helvetica Neue,sans-serif`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(text.toUpperCase(),cw/2,ch/2);
+  return new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(cv)}));
+}
+function makeFloorLabel(text){
+  const cw=256,ch=80;
+  const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+  const ctx=cv.getContext('2d');
+  ctx.clearRect(0,0,cw,ch);
+  ctx.fillStyle='rgba(255,255,255,0.92)'; ctx.font=`500 ${Math.round(ch*0.36)}px Helvetica Neue,sans-serif`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(text.toUpperCase(),cw/2,ch/2);
+  return new THREE.Mesh(new THREE.PlaneGeometry(1.4,0.38),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(cv),transparent:true}));
+}
+
+function addLED(group,w,h,depth,type){
+  const lw=type==='frontal'?w:depth;
+  const lh=type==='frontal'?depth:w;
+  const top=new THREE.Mesh(new THREE.BoxGeometry(type==='frontal'?w:0.03,0.03,type==='frontal'?0.03:w),ledM);
+  const bot=top.clone();
+  if(type==='frontal'){
+    top.position.set(0,h+0.016,depth/2); bot.position.set(0,0.016,depth/2);
+    const sL=new THREE.Mesh(new THREE.BoxGeometry(0.03,h,0.03),ledM); sL.position.set(-w/2,h/2,depth/2);
+    const sR=sL.clone(); sR.position.set(w/2,h/2,depth/2);
+    group.add(sL,sR);
+  } else if(type==='wall-left'){
+    top.position.set(depth/2,h+0.016,0); bot.position.set(depth/2,0.016,0);
+    const sA=new THREE.Mesh(new THREE.BoxGeometry(0.03,h,0.03),ledM); sA.position.set(depth/2,h/2,-w/2);
+    const sB=sA.clone(); sB.position.set(depth/2,h/2,w/2);
+    group.add(sA,sB);
+  } else {
+    top.position.set(-depth/2,h+0.016,0); bot.position.set(-depth/2,0.016,0);
+    const sA=new THREE.Mesh(new THREE.BoxGeometry(0.03,h,0.03),ledM); sA.position.set(-depth/2,h/2,-w/2);
+    const sB=sA.clone(); sB.position.set(-depth/2,h/2,w/2);
+    group.add(sA,sB);
+  }
+  group.add(top,bot);
+  const pl=new THREE.PointLight(0xfffde0,0.55,3.5);
+  if(type==='frontal') pl.position.set(0,h/2,depth/2+0.3);
+  else if(type==='wall-left') pl.position.set(depth/2+0.3,h/2,0);
+  else pl.position.set(-depth/2-0.3,h/2,0);
+  group.add(pl);
+}
+
+// Hanger: T-shaped coat hanger
+function makeHanger(color){
+  const g=new THREE.Group();
+  // Hook (small cylinder)
+  const hook=new THREE.Mesh(new THREE.TorusGeometry(0.04,0.012,8,12,Math.PI),hangerM);
+  hook.position.set(0,0.06,0); hook.rotation.x=Math.PI/2; g.add(hook);
+  // Horizontal bar
+  const bar=new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,0.36,8),hangerM);
+  bar.rotation.z=Math.PI/2; bar.position.set(0,0,0); g.add(bar);
+  // Two diagonal arms
+  [-1,1].forEach(s=>{
+    const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.14,8),hangerM);
+    arm.rotation.z=s*0.6; arm.position.set(s*0.16,-0.06,0); g.add(arm);
+  });
+  // Garment (flat box) — tagged for click
+  const garment=new THREE.Mesh(new THREE.BoxGeometry(0.38,0.48,0.04),new THREE.MeshStandardMaterial({color,roughness:0.9}));
+  garment.position.set(0,-0.3,0); garment.userData.isHanger=true; g.add(garment);
+  return g;
+}
+
+// Folded item on shelf
+function makeFolded(color){
+  return new THREE.Mesh(new THREE.BoxGeometry(0.32,0.10,0.26),new THREE.MeshStandardMaterial({color,roughness:0.9}));
+}
+
+// SHELF UNIT
+// Structure:
+//   h_total = total height
+//   hang_zone = top ~40% for hanging rail + garments  
+//   shelf_zone = bottom ~60% for folded shelves
+const clickables=[];
+// hangers = meshes that trigger product lightbox on click
+const hangers=[];
+
+function makeUnit({x,z,w,h,shelvesN,cat,type}){
+  const g=new THREE.Group();
+  const depth=0.44;
+  const hangH=h*0.42;   // top zone height for hanging
+  const shelfH=h*0.58;  // bottom zone for shelves
+
+  // Back panel full height
+  const bpGeom=new THREE.BoxGeometry(
+    type==='frontal'?w:0.1,
+    h,
+    type==='frontal'?0.1:w
+  );
+  const bp=new THREE.Mesh(bpGeom,M(0x222222));
+  bp.position.set(0,h/2,0); g.add(bp);
+
+  // Hanging zone divider line (thin horizontal stripe)
+  const divGeom=new THREE.BoxGeometry(
+    type==='frontal'?w:0.05,
+    0.04,
+    type==='frontal'?0.04:w
+  );
+  const divider=new THREE.Mesh(divGeom,M(0x333333,0.4,0.6));
+  divider.position.set(0,shelfH,0); g.add(divider);
+
+  // HANGING RAIL (top zone)
+  const railX = type==='wall-right' ? -depth/2 : type==='wall-left' ? depth/2 : 0;
+  const railZ = type==='frontal' ? depth/2 : 0;
+  const railLen = w;
+
+  if(type==='frontal'){
+    const rail=new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,railLen,8),railM);
+    rail.rotation.z=Math.PI/2; rail.position.set(0,h-0.25,depth/2); g.add(rail);
+    // Hangers
+    const nH=Math.floor(railLen/0.46);
+    for(let j=0;j<nH;j++){
+      const hg=makeHanger(j<nH*0.5?PM[j%PM.length].color:(j%3===0?AM[j%AM.length].color:PM[(j+3)%PM.length].color));
+      hg.position.set(-railLen/2+0.3+j*0.46, h-0.25, depth/2+0.02);
+      hg.userData.category=cat; hg.children.forEach(c=>c.userData.category=cat);
+      g.add(hg);
+    }
+  } else {
+    const rail=new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,railLen,8),railM);
+    rail.rotation.x=Math.PI/2; rail.position.set(railX,h-0.25,0); g.add(rail);
+    const nH=Math.floor(railLen/0.46);
+    for(let j=0;j<nH;j++){
+      const hg=makeHanger(j%3===0?AM[j%AM.length].color:PM[j%PM.length].color);
+      const pz=-railLen/2+0.3+j*0.46;
+      hg.position.set(railX+(type==='wall-left'?0.04:-0.04),h-0.25,pz);
+      hg.rotation.y=type==='wall-left'?-Math.PI/2:Math.PI/2;
+      hg.userData.category=cat; hg.children.forEach(c=>c.userData.category=cat);
+      g.add(hg);
+    }
+  }
+
+  // SHELVES (bottom zone) 
+  const shelfY0=0.3;
+  for(let i=0;i<shelvesN;i++){
+    const sy=shelfY0+i*(shelfH-0.25)/(shelvesN);
+    if(type==='frontal'){
+      const sh=new THREE.Mesh(new THREE.BoxGeometry(w,0.04,depth),shelfM);
+      sh.position.set(0,sy,depth/2); g.add(sh);
+      const slots=Math.floor(w/0.36);
+      for(let j=0;j<Math.min(slots,8);j++){
+        const item=makeFolded(j%4===0?AC[j%AC.length]:PC[(i+j)%PC.length]);
+        item.position.set(-w/2+0.24+j*0.36,sy+0.08,depth/2); g.add(item);
+      }
+    } else if(type==='wall-left'){
+      const sh=new THREE.Mesh(new THREE.BoxGeometry(depth,0.04,w),shelfM);
+      sh.position.set(depth/2,sy,0); g.add(sh);
+      const slots=Math.floor(w/0.36);
+      for(let j=0;j<Math.min(slots,8);j++){
+        const item=makeFolded(j%4===0?AC[j%AC.length]:PC[(i+j)%PC.length]);
+        item.position.set(depth/2,-0+sy+0.08,-w/2+0.24+j*0.36); g.add(item);
+      }
+    } else {
+      const sh=new THREE.Mesh(new THREE.BoxGeometry(depth,0.04,w),shelfM);
+      sh.position.set(-depth/2,sy,0); g.add(sh);
+      const slots=Math.floor(w/0.36);
+      for(let j=0;j<Math.min(slots,8);j++){
+        const item=makeFolded(j%4===0?AC[j%AC.length]:PC[(i+j)%PC.length]);
+        item.position.set(-depth/2,sy+0.08,-w/2+0.24+j*0.36); g.add(item);
+      }
+    }
+  }
+
+  // LED perimetro
+  addLED(g,w,h,depth,type);
+
+  // Sign above
+  const sw=Math.min(type==='frontal'?w:w*0.65,2.8);
+  const sb=new THREE.Mesh(new THREE.BoxGeometry(sw+0.1,0.3,0.04),signBackM);
+  const lbl=makeLabel(cat.name,sw,0.26);
+  if(type==='frontal'){
+    sb.position.set(0,h+0.18,0.06); lbl.position.set(0,h+0.18,0.09);
+  } else if(type==='wall-left'){
+    sb.position.set(0.22,h+0.18,0); sb.rotation.y=Math.PI/2;
+    lbl.position.set(0.25,h+0.18,0); lbl.rotation.y=Math.PI/2;
+  } else {
+    sb.position.set(-0.22,h+0.18,0); sb.rotation.y=-Math.PI/2;
+    lbl.position.set(-0.25,h+0.18,0); lbl.rotation.y=-Math.PI/2;
+  }
+  g.add(sb,lbl);
+
+  // Hitbox
+  const hbW=type==='frontal'?w+0.3:0.75;
+  const hbD=type==='frontal'?0.7:w+0.3;
+  const hbX=type==='wall-right'?-0.4:type==='wall-left'?0.4:0;
+  const hbZ=type==='frontal'?0.3:0;
+  const hb=new THREE.Mesh(new THREE.BoxGeometry(hbW,h+0.3,hbD),new THREE.MeshBasicMaterial({transparent:true,opacity:0}));
+  hb.position.set(hbX,h/2,hbZ); hb.userData={category:cat}; g.add(hb); clickables.push(hb);
+
+  g.position.set(x,0,z);
+  scene.add(g);
+
+  // PRODUCT TABLE — open (no body), parallel to shelf, h=0.90
+  // frontal shelf: table runs along X (same direction as shelf width)
+  // wall-left/right: table runs along Z (same direction as shelf length)
+  const legH=0.88; // 90cm
+  const benchDist = type==='frontal' ? 1.65 : 2.0;
+  let bx=x, bz=z;
+  let bTableW, bTableD; // W=along shelf direction, D=perpendicular
+  if(type==='frontal')     { bz=z+benchDist; bTableW=w*0.88; bTableD=0.55; }
+  else if(type==='wall-left'){ bx=x+benchDist; bTableW=0.55; bTableD=Math.min(w*0.8,3.8); }
+  else                       { bx=x-benchDist; bTableW=0.55; bTableD=Math.min(w*0.8,3.8); }
+  const benchGrp=new THREE.Group();
+  // 4 legs only (open table, no body panel)
+  const hw=bTableW/2-0.06, hd=bTableD/2-0.06;
+  [[-hw,-hd],[hw,-hd],[-hw,hd],[hw,hd]].forEach(([lx,lz])=>{
+    const leg=new THREE.Mesh(new THREE.BoxGeometry(0.05,legH,0.05),M(0xdedad2,0.45,0.15));
+    leg.position.set(lx,legH/2,lz); leg.castShadow=true; benchGrp.add(leg);
+  });
+  // Top surface only
+  const top=new THREE.Mesh(new THREE.BoxGeometry(bTableW,0.038,bTableD),benchTopM);
+  top.position.set(0,legH+0.019,0); top.castShadow=true; benchGrp.add(top);
+  // Thin edge band under top
+  const band=new THREE.Mesh(new THREE.BoxGeometry(bTableW,0.04,bTableD),M(0xe8e4da,0.4,0.08));
+  band.position.set(0,legH-0.01,0); benchGrp.add(band);
+  // Outline placeholder on top
+  const oe=new THREE.EdgesGeometry(new THREE.BoxGeometry(bTableW*0.78,0.01,bTableD*0.7));
+  const ol=new THREE.LineSegments(oe,new THREE.LineBasicMaterial({color:0xbbbbbb,transparent:true,opacity:0.45}));
+  ol.position.set(0,legH+0.03,0); benchGrp.add(ol);
+  benchGrp.position.set(bx,0,bz);
+  scene.add(benchGrp);
+
+  // Navigation data stored on hitbox — click shelf to navigate in front of it
+  const viewDist = (w/2)/0.557 + 0.8;
+  hb.userData.navTargetX = type==='wall-left'?x+viewDist : type==='wall-right'?x-viewDist : x;
+  hb.userData.navTargetZ = type==='frontal' ? z+viewDist : z;
+  hb.userData.navLookX   = type==='wall-left'?x-0.3 : type==='wall-right'?x+0.3 : x;
+  hb.userData.navLookY   = h*0.55;
+  hb.userData.navLookZ   = type==='frontal' ? z-0.3 : z;
+}
+
+// ROOM
+Box(20,0.08,24,floorM,0,-0.04,0);
+Box(20,0.12,24,ceilM,0,4.2,0);
+Box(20,4.2,0.2,wallM,0,2.1,-13.26);
+Box(0.2,4.2,24,wallM,-10,2.1,0);
+Box(0.2,4.2,24,wallM,10,2.1,0);
+
+// STOREFRONT
+Box(20,1.4,0.3,frameM,0,3.5,9.61);
+[-4.5,4.5].forEach(x=>Box(0.18,4.5,0.3,frameM,x,2.8,9.61));
+const g1=new THREE.Mesh(new THREE.BoxGeometry(4.2,4.3,0.06),glassM);
+g1.position.set(-2.25,2.8,9.61); scene.add(g1);
+const g2=g1.clone(); g2.position.set(2.25,2.8,9.61); scene.add(g2);
+// Door: thin frame + glass (no opaque panel)
+Box(0.06,3.2,0.1,frameM,-0.7,1.6,9.61);
+Box(0.06,3.2,0.1,frameM, 0.7,1.6,9.61);
+Box(1.4,0.08,0.1,frameM, 0,  0.04,9.61);
+Box(1.4,0.08,0.1,frameM, 0,  3.2, 9.61);
+// Door: two sliding panels
+const doorGlassM=new THREE.MeshStandardMaterial({color:0xaaccdd,transparent:true,opacity:0.22,roughness:0,metalness:0.15});
+const doorL=new THREE.Mesh(new THREE.BoxGeometry(0.64,3.1,0.04),doorGlassM);
+doorL.position.set(-0.34,1.6,9.61); scene.add(doorL);
+const doorR=new THREE.Mesh(new THREE.BoxGeometry(0.64,3.1,0.04),doorGlassM);
+doorR.position.set( 0.34,1.6,9.61); scene.add(doorR);
+// Thin door frame edges visible on panels
+const doorEdgeM=M(0x181818,0.3,0.7);
+[-0.66,0.66].forEach(ex=>{Box(0.04,3.1,0.04,doorEdgeM,ex,1.6,9.61);});
+Box(1.32,0.04,0.04,doorEdgeM,0,3.14,9.61);
+Box(1.32,0.04,0.04,doorEdgeM,0,0.06,9.61);
+// Exterior floor — wide slab outside the shop
+Box(30,0.08,14,M(0x9a9590,0.95),0,-0.04,16);
+// Pavement kerb edge
+Box(30,0.12,0.15,M(0xb0acA8,0.9),0,0.02,9.72);
+// Road beyond (darker)
+Box(40,0.06,10,M(0x787268,1.0),0,-0.05,24);
+// Two faint pavement lines
+[-5,5].forEach(x=>Box(0.08,0.04,14,M(0xc0bcb8,0.5),x,0.01,16));
+Box(20,0.08,4,M(0x999999,1),0,-0.01,9.06);
+[[-2.6,3.2],[-0.9,3.4],[0.9,3.2],[2.6,3.4]].forEach(([x,y],i)=>Box(0.55,0.72,0.06,PM[i],x,y,9.45));
+
+// CATEGORIES
+const cats={
+  magliette:{name:'Magliette',emoji:'👕',desc:'T-shirt premium in cotone organico. Vestibilità atletica, perfetta per allenarti o per il quotidiano.',price:'€ 45,00'},
+  felpe:{name:'Felpe',emoji:'🧥',desc:'Felpe con cappuccio in fleece tecnico. Calore, stile e libertà di movimento.',price:'€ 89,00'},
+  cappellini:{name:'Cappellini',emoji:'🧢',desc:'Cappellini da running e lifestyle. Protezione UV e traspirabilità massima.',price:'€ 32,00'},
+  pantaloncini:{name:'Pantaloncini',emoji:'🩳',desc:'Pantaloncini sportivi ultraleggeri. Tessuto a 4 vie per ogni movimento.',price:'€ 55,00'},
+  leggings:{name:'Leggings',emoji:'🩱',desc:'Leggings a compressione graduata. Supporto muscolare e design senza cuciture.',price:'€ 75,00'}
+};
+
+makeUnit({x:-2.5, z:-3.35,   w:3.4, h:2.8, shelvesN:2, cat:cats.magliette, type:'frontal'});
+makeUnit({x:2.5,  z:-3.35,   w:3.4, h:2.8, shelvesN:2, cat:cats.magliette, type:'frontal'});
+makeUnit({x:-6.5, z:-11.1,w:2.8, h:2.8, shelvesN:2, cat:cats.magliette, type:'frontal'});
+makeUnit({x:7.0,  z:-11.1,w:2.8, h:2.8, shelvesN:2, cat:cats.magliette, type:'frontal'});
+makeUnit({x:9.8,  z:-5.23,w:7,   h:2.8, shelvesN:2, cat:cats.felpe,     type:'wall-right'});
+makeUnit({x:9.8,  z:-1.26,   w:5,   h:3.0, shelvesN:3, cat:cats.cappellini,type:'wall-right'});
+makeUnit({x:-9.8, z:-1.05, w:5,   h:3.8, shelvesN:3, cat:cats.pantaloncini,type:'wall-left'});
+makeUnit({x:-9.8, z:-5.44,  w:5,   h:3.8, shelvesN:3, cat:cats.leggings,  type:'wall-left'});
+
+// SPOTLIGHTS
+makeSpot(-2.5,3.9,-3.56,-1.62,2,-5.18,3.5,Math.PI/9);
+makeSpot(2.5,3.9,-3.56,1.62,2,-5.18,3.5,Math.PI/9);
+makeSpot(-6.5,3.9,-10.35,-4.21,2,-12.16,3.0,Math.PI/10);
+makeSpot(7.0,3.9,-10.35,4.53,2,-12.16,3.0,Math.PI/10);
+makeSpot(7,3.9,-6.47,9.8,2,-8.09,3.0,Math.PI/9);
+makeSpot(7,3.9,-0.32,9.8,1.5,-3,2.5,Math.PI/10);
+makeSpot(-7,3.9,0.0,-9.8,2,-2.5,3.0,Math.PI/9);
+makeSpot(-7,3.9,-6.47,-9.8,2,-13,3.0,Math.PI/9);
+makeSpot(0,3.9,-11.0,0,1,-12.0,3.5,Math.PI/8);
+
+// CASSA
+Box(5.8,1.08,0.88,counterM,0,0,-12.0);
+Box(5.9,0.05,0.92,marbleM,0,1.108,-12.0);
+Box(5.8,0.88,0.06,M(0x0a0a0a,0.4,0.5),0,0.54,-11.71);
+Box(7,3.4,0.28,M(0x181818),0,1.7,-12.68);
+[0.9,1.6,2.3,3.0].forEach(y=>Box(6.8,0.04,0.4,shelfM,0,y,-12.55));
+for(let c=-2.8;c<=2.8;c+=0.9) for(let r=0;r<3;r++) Box(0.72,0.12,0.28,PM[(r+Math.abs(c*1.1)|0)%PM.length],c,1.0+r*0.7,-12.552);
+const cassaLedT=new THREE.Mesh(new THREE.BoxGeometry(7,0.03,0.03),ledM); cassaLedT.position.set(0,3.9,-12.68); scene.add(cassaLedT);
+const cassaLedB=cassaLedT.clone(); cassaLedB.position.set(0,0.04,-12.68); scene.add(cassaLedB);
+const cassaPL=new THREE.PointLight(0xfffde0,0.5,4.5); cassaPL.position.set(0,2.5,-12.49); scene.add(cassaPL);
+Box(0.56,0.38,0.04,screenM,1.0,1.46,-11.91);
+Box(0.06,0.22,0.06,M(0x0a0a0a),1.0,1.15,-11.89);
+Box(0.34,0.24,0.30,M(0x1a1a1a,0.35,0.65),-1.0,1.22,-11.88);
+Box(0.1,0.18,0.07,M(0x222,0.4,0.5),0.1,1.15,-11.78);
+Cyl(0.03,0.03,0.22,8,M(0x888,0.5,0.4),-0.45,1.2,-11.782,0.25);
+const cassaSign=makeLabel('Cassa',2.0,0.24); cassaSign.position.set(0,3.7,-12.68); scene.add(cassaSign);
+
+// CENTRAL ISLAND z=-2.88 (Y=14.55m)
+Box(3.8,0.92,1.1,counterM,0,0,-1.38);
+Box(3.9,0.04,1.18,marbleM,0,0.94,-1.38);
+[[-1.3,0.98,-1.38],[0,0.98,-1.38],[1.3,0.98,-1.38]].forEach(([x,y,z],i)=>Box(0.85,0.12,0.88,PM[i],x,y+0.07,z));
+
+// CEILING TRACKS
+Box(18,0.06,0.06,railM,0,4.08,-5.18);
+Box(18,0.06,0.06,railM,0,4.08,-11.97);
+[-6,-3,0,3,6].forEach(x=>{
+  Box(0.13,0.22,0.13,M(0x080808,0.3,0.85),x,3.88,-5.18);
+  Box(0.13,0.22,0.13,M(0x080808,0.3,0.85),x,3.88,-11.97);
+});
+
+// PLANT removed
+
+
+// ---- INTERACTION ----
+const ray=new THREE.Raycaster(),mouse=new THREE.Vector2();
+const cv=document.getElementById('canvas');
+const entryDiv=document.getElementById('entry'),logoDiv=document.getElementById('logo'),hintDiv=document.getElementById('hint'),lb=document.getElementById('lb');
+
+let doorOpen=false, doorProgress=0;
+const DOOR_SLIDE=0.64; // each panel slides this far
+
+document.getElementById('enterbtn').addEventListener('click',()=>{
+  appState='entering'; camTargetZ=6; doorOpen=true;
+  entryDiv.style.opacity='0'; entryDiv.style.pointerEvents='none';
+  setTimeout(()=>{logoDiv.style.opacity='1';hintDiv.style.opacity='1';},1400);
+});
+document.getElementById('lbclose').addEventListener('click',()=>lb.classList.remove('open'));
+
+function hitTest(e){
+  mouse.x=(e.clientX/innerWidth)*2-1;
+  mouse.y=-(e.clientY/innerHeight)*2+1;
+  ray.setFromCamera(mouse,camera);
+  // 1. Check hangers first (full scene, recursive) — garments tagged isHanger
+  const allHits=ray.intersectObjects(scene.children,true);
+  for(const h of allHits){
+    let o=h.object;
+    while(o){
+      if(o.userData.isHanger && o.userData.category)
+        return {type:'product', cat:o.userData.category};
+      if(o.userData.isHanger && o.parent && o.parent.userData.category)
+        return {type:'product', cat:o.parent.userData.category};
+      o=o.parent;
+    }
+  }
+  // 2. Shelf hitboxes → navigate
+  const sHits=ray.intersectObjects(clickables,false);
+  if(sHits.length && sHits[0].object.userData.navTargetX!==undefined)
+    return {type:'shelf', hb:sHits[0].object};
+  return null;
+}
+
+cv.addEventListener('click',e=>{
+  if(appState!=='inside') return;
+  const hit=hitTest(e); if(!hit) return;
+  if(hit.type==='shelf'){
+    const d=hit.hb.userData;
+    navigating=true;
+    navTX=d.navTargetX; navTZ=d.navTargetZ;
+    camTargetX=navTX; camTargetZ=navTZ;
+    lookTargX=d.navLookX; lookTargY=d.navLookY; lookTargZ=d.navLookZ;
+  } else if(hit.type==='product'){
+    const cat=hit.cat;
+    document.getElementById('lbicon').textContent=cat.emoji;
+    document.getElementById('lbtitle').textContent=cat.name;
+    document.getElementById('lbdesc').textContent=cat.desc;
+    document.getElementById('lbprice').textContent=cat.price;
+    lb.classList.add('open');
+  }
+});
+
+cv.addEventListener('mousemove',e=>{
+  if(appState!=='inside') return;
+  const hit=hitTest(e);
+  cv.style.cursor=hit?'pointer':'default';
+});
+
+cv.addEventListener('wheel',e=>{
+  if(appState!=='inside') return;
+  navigating=false;
+  lookTargZ=lookTargZ; // keep look target
+  camTargetZ=Math.max(-11,Math.min(9,camTargetZ+e.deltaY*0.012));
+},{passive:true});
+
+const keys={};
+document.addEventListener('keydown',e=>{keys[e.key]=true; if(appState==='inside'){navigating=false; lookTargX=camX*0.15; lookTargY=1.5; lookTargZ=-10;}});
+document.addEventListener('keyup',  e=>keys[e.key]=false);
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+
+let t=0;
+(function loop(){
+  requestAnimationFrame(loop);
+  t+=0.025;
+  // Door slide animation
+  if(doorOpen && doorProgress<1){
+    doorProgress=Math.min(1, doorProgress+0.018);
+    const ease=1-Math.pow(1-doorProgress,3);
+    doorL.position.x=-0.34-DOOR_SLIDE*ease;
+    doorR.position.x= 0.34+DOOR_SLIDE*ease;
+  }
+  if(appState==='entering'){
+    camZ+=(camTargetZ-camZ)*0.022;
+    if(Math.abs(camZ-camTargetZ)<0.07){appState='inside';camZ=camTargetZ;}
+  }
+  if(appState==='inside'){
+    if(!navigating){
+      if(keys['ArrowLeft']||keys['a'])  camTargetX=Math.max(-7.5,camTargetX-0.07);
+      if(keys['ArrowRight']||keys['d']) camTargetX=Math.min(7.5,camTargetX+0.07);
+      if(keys['ArrowUp']||keys['w'])    camTargetZ=Math.max(-11,camTargetZ-0.07);
+      if(keys['ArrowDown']||keys['s'])  camTargetZ=Math.min(9,camTargetZ+0.07);
+    }
+    camX+=(camTargetX-camX)*0.08;
+    camZ+=(camTargetZ-camZ)*0.08;
+    if(navigating&&Math.abs(camX-navTX)<0.12&&Math.abs(camZ-navTZ)<0.12) navigating=false;
+  }
+  lookAtX+=(lookTargX-lookAtX)*0.06;
+  lookAtY+=(lookTargY-lookAtY)*0.06;
+  lookAtZ+=(lookTargZ-lookAtZ)*0.06;
+  camera.position.set(camX,1.8,camZ);
+  camera.lookAt(lookAtX,lookAtY,lookAtZ);
+  renderer.render(scene,camera);
+})();
+</script>
+</body>
+</html>
